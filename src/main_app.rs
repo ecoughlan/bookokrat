@@ -686,6 +686,7 @@ impl App {
         #[cfg(not(any(test, feature = "test-utils")))]
         let mut text_reader = MarkdownTextReader::new();
         text_reader.set_margin(settings::get_margin());
+        text_reader.set_vertical_margin(settings::get_vertical_margin());
         text_reader.set_justify_text(settings::is_justify_text());
         text_reader
             .set_dual_columns(settings::get_epub_column_mode() == settings::EpubColumnMode::Dual);
