@@ -140,6 +140,9 @@ pub struct Settings {
     #[serde(default)]
     pub margin: u16,
 
+    #[serde(default = "default_vertical_margin")]
+    pub vertical_margin: u16,
+
     #[serde(default)]
     pub transparent_background: bool,
 
@@ -201,6 +204,10 @@ pub struct Settings {
     pub synctex_editor: Option<String>,
 }
 
+fn default_vertical_margin() -> u16 {
+    1
+}
+
 fn default_true() -> bool {
     true
 }
@@ -223,6 +230,7 @@ impl Default for Settings {
             version: CURRENT_VERSION,
             theme: default_theme(),
             margin: 0,
+            vertical_margin: default_vertical_margin(),
             transparent_background: false,
             pdf_scale: default_pdf_scale(),
             pdf_pan_shift: 0,
@@ -640,6 +648,10 @@ fn app_managed_key_values(settings: &Settings) -> Vec<(String, String)> {
         ("theme".into(), format!("\"{}\"", settings.theme)),
         ("margin".into(), format!("{}", settings.margin)),
         (
+            "vertical_margin".into(),
+            format!("{}", settings.vertical_margin),
+        ),
+        (
             "transparent_background".into(),
             format!("{}", settings.transparent_background),
         ),
@@ -740,6 +752,7 @@ fn generate_settings_yaml(settings: &Settings) -> String {
     content.push_str(&format!("version: {}\n", settings.version));
     content.push_str(&format!("theme: \"{}\"\n", settings.theme));
     content.push_str(&format!("margin: {}\n", settings.margin));
+    content.push_str(&format!("vertical_margin: {}\n", settings.vertical_margin));
     content.push_str(&format!(
         "transparent_background: {}\n",
         settings.transparent_background
@@ -997,6 +1010,12 @@ mod tests {
         runtime.update(|settings| settings.margin = 9);
 
         assert_eq!(*persistence.observed.lock().unwrap(), vec![9]);
+    }
+
+    #[test]
+    fn vertical_margin_defaults_to_one_for_legacy_configs() {
+        let legacy: Settings = serde_yaml::from_str("margin: 4\n").unwrap();
+        assert_eq!(legacy.vertical_margin, 1);
     }
 
     #[test]

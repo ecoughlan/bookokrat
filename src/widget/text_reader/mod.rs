@@ -233,6 +233,7 @@ pub struct MarkdownTextReader {
 
     /// Content margin level (0-20), each level adds 2 columns on each side
     content_margin: u16,
+    vertical_margin: u16,
 
     /// Whether to justify text (distribute extra spaces between words)
     justify_text: bool,
@@ -382,6 +383,7 @@ impl MarkdownTextReader {
             comment_input: CommentInputState::default(),
             chapter_title: None,
             content_margin: 0,
+            vertical_margin: 1,
             justify_text: false,
             underline_color_enabled: true,
             dual: DualState::default(),
@@ -921,8 +923,9 @@ impl MarkdownTextReader {
         } else {
             Block::default().borders(Borders::ALL).inner(area)
         };
-        inner.y = inner.y.saturating_add(1);
-        inner.height = inner.height.saturating_sub(1);
+        let vmargin = self.vertical_margin.min(inner.height);
+        inner.y = inner.y.saturating_add(vmargin);
+        inner.height = inner.height.saturating_sub(vmargin);
         inner.x = inner.x.saturating_add(1);
         let margin_pixels = self.content_margin * 2;
         inner.x = inner.x.saturating_add(margin_pixels);
@@ -1523,7 +1526,8 @@ impl MarkdownTextReader {
         is_focused: bool,
     ) {
         self.last_content_area = Some(area);
-        self.visible_height = area.height.saturating_sub(3) as usize;
+        let inner_area = self.content_inner_rect(area, false);
+        self.visible_height = inner_area.height as usize;
 
         let title_text = if let Some(ref title) = self.chapter_title {
             format!("[{current_chapter}/{total_chapters}] {title} [RAW HTML]")
@@ -1651,14 +1655,6 @@ impl MarkdownTextReader {
                 block = block.title_bottom(Line::from(search_hint).left_aligned());
             }
         }
-
-        // Calculate inner area for text
-        let mut inner_area = block.inner(area);
-        inner_area.y = inner_area.y.saturating_add(1);
-        inner_area.height = inner_area.height.saturating_sub(1);
-        inner_area.x = inner_area.x.saturating_add(1);
-        inner_area.x = inner_area.x.saturating_add(margin_pixels);
-        inner_area.width = inner_area.width.saturating_sub(margin_pixels * 2);
 
         self.last_inner_text_area = Some(inner_area);
         self.dual.right_column = None;
@@ -1817,6 +1813,10 @@ impl MarkdownTextReader {
         self.content_margin
     }
 
+    pub fn set_vertical_margin(&mut self, vmargin: u16) {
+        self.vertical_margin = vmargin;
+    }
+
     pub fn set_justify_text(&mut self, justify: bool) {
         self.justify_text = justify;
         self.cache_generation += 1;
@@ -1869,6 +1869,30 @@ impl MarkdownTextReader {
 
     pub fn request_overlay_cleanup_on_next_frame(&mut self) {
         self.last_overlay_cleanup_key = None;
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn vertical_margin_only_moves_the_top_edge() {
+        let mut reader = MarkdownTextReader::new_without_image_support(RuntimeSettings::in_memory(
+            crate::settings::Settings::default(),
+        ));
+        for area in [Rect::new(5, 7, 120, 24), Rect::new(0, 0, 80, 2)] {
+            let bordered = Block::default().borders(Borders::ALL).inner(area);
+            reader.set_vertical_margin(0);
+            let base = reader.content_inner_rect(area, false);
+            for vmargin in [0, 1, 3, u16::MAX] {
+                reader.set_vertical_margin(vmargin);
+                let inner = reader.content_inner_rect(area, false);
+                assert_eq!((inner.x, inner.width), (base.x, base.width));
+                assert_eq!(inner.y, bordered.y + vmargin.min(bordered.height));
+                assert_eq!(inner.bottom(), bordered.bottom());
+            }
+        }
     }
 }
 

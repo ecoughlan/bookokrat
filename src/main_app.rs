@@ -672,6 +672,7 @@ impl App {
         let mut text_reader = MarkdownTextReader::new(settings.clone());
         let initial_settings = settings.load();
         text_reader.set_margin(initial_settings.margin);
+        text_reader.set_vertical_margin(initial_settings.vertical_margin);
         text_reader.set_justify_text(initial_settings.justify_text);
         text_reader
             .set_dual_columns(initial_settings.epub_column_mode == settings::EpubColumnMode::Dual);

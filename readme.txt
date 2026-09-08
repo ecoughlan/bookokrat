@@ -428,7 +428,7 @@ PDF annotations require a graphics-capable terminal.
     Bookokrat saves user preferences to ~/.config/bookokrat/config.yaml
     (Windows: %APPDATA%\bookokrat\config.yaml). Key settings:
       • Selected theme and custom themes
-      • Content margin and text justification
+      • Content margins (horizontal and vertical) and text justification
       • PDF enabled flag, render mode, page layout, scale, pan shift
       • Nav panel width override
       • Lookup command and display mode (dictionary / shell integration)
