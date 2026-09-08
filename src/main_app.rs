@@ -673,6 +673,7 @@ impl App {
         let initial_settings = settings.load();
         text_reader.set_margin(initial_settings.margin);
         text_reader.set_vertical_margin(initial_settings.vertical_margin);
+        text_reader.set_blind_scroll_speed(initial_settings.blind_scroll_speed);
         text_reader.set_justify_text(initial_settings.justify_text);
         text_reader
             .set_dual_columns(initial_settings.epub_column_mode == settings::EpubColumnMode::Dual);
@@ -2332,6 +2333,13 @@ impl App {
         #[cfg(any(test, feature = "test-utils"))]
         self.sync_terminal_size_from_test_context();
 
+        if self.text_reader.is_blind_scrolling() {
+            if initial_mouse_event.kind != MouseEventKind::Moved {
+                self.text_reader.stop_blind_scroll();
+            }
+            return;
+        }
+
         let is_scroll_event = matches!(
             initial_mouse_event.kind,
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
@@ -2593,6 +2601,12 @@ impl App {
 
     /// Handle non-scroll mouse events (clicks, drags, etc.)
     fn handle_non_scroll_mouse_event(&mut self, mouse_event: MouseEvent) {
+        if self.text_reader.is_blind_scrolling() {
+            if mouse_event.kind != MouseEventKind::Moved {
+                self.text_reader.stop_blind_scroll();
+            }
+            return;
+        }
         match mouse_event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.clear_highlight_palette();
@@ -4034,6 +4048,114 @@ impl App {
         }
     }
 
+    /// Keys that operate blind scrolling without ending it.
+    fn dispatch_blind_action(&mut self, action: &crate::keybindings::action::Action) -> bool {
+        use crate::keybindings::action::Action;
+        let rows = match action {
+            Action::Nop => return true,
+            Action::Cancel => return self.text_reader.stop_blind_scroll(),
+            Action::PauseBlindScroll => {
+                self.text_reader.pause_blind_scroll();
+                return true;
+            }
+            Action::IncreaseBlindScrollSpeed | Action::DecreaseBlindScrollSpeed => {
+                let delta = if *action == Action::IncreaseBlindScrollSpeed {
+                    10
+                } else {
+                    -10
+                };
+                let speed = self
+                    .text_reader
+                    .get_blind_scroll_speed()
+                    .saturating_add_signed(delta);
+                self.text_reader.set_blind_scroll_speed(speed);
+                let speed = self.text_reader.get_blind_scroll_speed();
+                self.settings
+                    .update(|settings| settings.blind_scroll_speed = speed);
+                return true;
+            }
+            Action::RewindBlindScroll => -1,
+            Action::AdvanceBlindScroll => 1,
+            Action::RewindBlindScrollFast => -10,
+            Action::AdvanceBlindScrollFast => 10,
+            _ => return false,
+        };
+        if self.text_reader.step_blind_scroll(rows) {
+            self.save_bookmark();
+            self.update_toc_state();
+        }
+        true
+    }
+
+    fn blind_scroll_context_active(&self) -> bool {
+        self.is_main_panel(MainPanel::Content)
+            && !self.is_pdf_mode()
+            && !self.has_active_popup()
+            && !self.text_reader.is_comment_input_active()
+            && !self.is_search_input_mode()
+    }
+
+    fn tick_blind_scroll(&mut self, now: std::time::Instant) -> bool {
+        if !self.text_reader.is_blind_scrolling() {
+            return false;
+        }
+        if !self.blind_scroll_context_active() {
+            return self.text_reader.stop_blind_scroll();
+        }
+        let mut changed = false;
+        for _ in 0..4 {
+            let Some(chapter) = self.text_reader.blind_scroll_needed_chapter() else {
+                break;
+            };
+            let Some(book) = self.current_book.as_mut() else {
+                return self.text_reader.stop_blind_scroll();
+            };
+            if chapter >= book.total_chapters() {
+                self.text_reader.finish_blind_scroll_loading();
+                changed = true;
+                break;
+            }
+            let content = Self::get_chapter_href(&book.epub, chapter).and_then(|href| {
+                book.epub
+                    .get_resource_str_by_path(&href)
+                    .map(|html| (href, html))
+            });
+            let Some((href, html)) = content else {
+                self.text_reader.stop_blind_scroll();
+                self.text_reader
+                    .set_error_hud("Could not read the next chapter");
+                return true;
+            };
+            let title = extract_chapter_title(&html);
+            self.text_reader.cache_blind_scroll_chapter(
+                chapter,
+                href,
+                &html,
+                title,
+                &self.book_images,
+            );
+            changed = true;
+        }
+        changed |= self.text_reader.update_blind_scroll(now);
+        if let (Some(chapter), Some(book)) = (
+            self.text_reader.blind_scroll_chapter(),
+            self.current_book.as_mut(),
+        ) {
+            book.epub.set_current_chapter(chapter);
+        }
+        if self.text_reader.is_blind_scroll_finished() {
+            self.text_reader.stop_blind_scroll();
+            self.text_reader.set_normal_hud("End of book");
+            self.save_bookmark_with_throttle(true);
+            return true;
+        }
+        if changed {
+            self.save_bookmark();
+            self.update_toc_state();
+        }
+        changed
+    }
+
     pub fn draw(&mut self, f: &mut ratatui::Frame, fps_counter: &FPSCounter) {
         let draw_closure_start = std::time::Instant::now();
         #[cfg(feature = "pdf")]
@@ -4859,6 +4981,14 @@ impl App {
         use crate::keybindings::action::Action;
 
         match action {
+            Action::StartBlindScroll => {
+                if self.blind_scroll_context_active() {
+                    if let Some(book) = self.current_book.as_ref() {
+                        self.text_reader.start_blind_scroll(book.current_chapter());
+                    }
+                }
+                true
+            }
             Action::ToggleHelp => {
                 if let FocusedPanel::Main(panel) = self.focused_panel {
                     self.previous_main_panel = panel;
@@ -6040,6 +6170,39 @@ impl App {
 
         let _ = self.text_reader.dismiss_error_hud();
 
+        if self.text_reader.is_blind_scrolling() && !self.blind_scroll_context_active() {
+            self.text_reader.stop_blind_scroll();
+            self.key_sequence.clear();
+        }
+        if self.text_reader.is_blind_scrolling() {
+            use crate::keybindings::{
+                context::KeyContext, keymap::LookupResult, notation::key_event_to_input,
+            };
+            let mut keys: Vec<_> = self
+                .key_sequence
+                .keys()
+                .iter()
+                .map(key_event_to_input)
+                .collect();
+            keys.push(key_event_to_input(&key));
+            let resolved = crate::keybindings::keymap().lookup(KeyContext::EpubBlind, &keys);
+            match resolved {
+                LookupResult::Prefix => {
+                    self.key_sequence.push(key);
+                    return None;
+                }
+                LookupResult::Found(action) if self.dispatch_blind_action(&action) => {
+                    self.key_sequence.clear();
+                    return None;
+                }
+                // Any other key ends blind scrolling and is then handled as usual.
+                _ => {
+                    self.text_reader.stop_blind_scroll();
+                    self.key_sequence.clear();
+                }
+            }
+        }
+
         // If comment input is active, route all input to the text area
         if self.text_reader.is_comment_input_active() {
             if let Some(input) = map_keys_to_input(key) {
@@ -7096,6 +7259,11 @@ impl App {
                 "Cannot open book search - search engine not initialized. This should never happen"
             );
         }
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn testing_tick_blind_scroll(&mut self, now: std::time::Instant) -> bool {
+        self.tick_blind_scroll(now)
     }
 
     #[doc(hidden)]
@@ -8409,6 +8577,7 @@ where
         }
 
         if last_tick.elapsed() >= tick_rate {
+            needs_redraw |= app.tick_blind_scroll(std::time::Instant::now());
             let highlight_changed = app.text_reader.update_highlight(); // Update highlight state
             let epub_hud_expired = app.text_reader.update_hud_message();
             let deferred_reload_started = app.text_reader.tick_deferred_image_reload();
@@ -8517,6 +8686,63 @@ mod tests {
     use super::*;
     use crate::reading_history::ReadingHistoryAction;
     use crate::simple_fake_books::{FakeBookConfig, create_fake_epub_file};
+
+    #[test]
+    fn blind_scroll_continues_chapters_and_stops_at_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blind.epub");
+        create_fake_epub_file(
+            &path,
+            &FakeBookConfig {
+                title: "Blind reading".into(),
+                chapter_count: 3,
+                words_per_chapter: 50,
+            },
+        )
+        .unwrap();
+        let bookmarks = dir.path().join("bookmarks.json");
+        let mut app = App::new_with_config(
+            Some(dir.path().to_str().unwrap()),
+            Some(bookmarks.to_str().unwrap()),
+            false,
+            Some(dir.path()),
+            Some(dir.path().join("images")),
+        );
+        app.open_book_for_reading_by_path(path.to_str().unwrap(), None)
+            .unwrap();
+        app.set_zen_mode(true);
+        app.text_reader.set_dual_columns(true);
+        app.text_reader.set_blind_scroll_speed(1000);
+        assert!(
+            app.text_reader
+                .start_blind_scroll(app.current_book.as_ref().unwrap().current_chapter())
+        );
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(100, 10)).unwrap();
+        terminal
+            .draw(|frame| app.draw(frame, &FPSCounter::new()))
+            .unwrap();
+        let start = std::time::Instant::now();
+        for step in 1..=500 {
+            app.tick_blind_scroll(start + Duration::from_secs(step));
+            terminal
+                .draw(|frame| app.draw(frame, &FPSCounter::new()))
+                .unwrap();
+            if !app.text_reader.is_blind_scrolling() {
+                break;
+            }
+        }
+        assert!(!app.text_reader.is_blind_scrolling());
+        let book = app.current_book.as_ref().unwrap();
+        assert_eq!(book.current_chapter() + 1, book.total_chapters());
+        let last_node = app
+            .text_reader
+            .testing_rendered_lines()
+            .iter()
+            .rev()
+            .find_map(|line| line.node_index)
+            .unwrap();
+        assert_eq!(app.text_reader.get_current_node_index(), last_node);
+    }
 
     /// Regression test for https://github.com/bugzmanov/bookokrat/issues/104
     ///

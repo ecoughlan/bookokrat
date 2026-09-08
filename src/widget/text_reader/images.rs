@@ -316,6 +316,11 @@ impl crate::markdown_text_reader::MarkdownTextReader {
     }
 
     pub(super) fn update_image_settle_state(&mut self) {
+        if let Some(state) = self.blind_scroll.as_mut() {
+            for reader in state.chapters.values_mut() {
+                reader.update_image_settle_state();
+            }
+        }
         if !self.iterm2_images_active() {
             return;
         }
@@ -334,6 +339,14 @@ impl crate::markdown_text_reader::MarkdownTextReader {
     }
 
     pub fn settle_swap_imminent(&self) -> bool {
+        if self.blind_scroll.as_ref().is_some_and(|state| {
+            state
+                .chapters
+                .values()
+                .any(|reader| reader.settle_swap_imminent())
+        }) {
+            return true;
+        }
         if self.image_settle_placed || !self.iterm2_images_active() {
             return false;
         }
@@ -361,6 +374,11 @@ impl crate::markdown_text_reader::MarkdownTextReader {
 
     pub fn check_for_loaded_images(&mut self) -> bool {
         let mut any_loaded = false;
+        if let Some(state) = self.blind_scroll.as_mut() {
+            for reader in state.chapters.values_mut() {
+                any_loaded |= reader.check_for_loaded_images();
+            }
+        }
 
         if let Some(loaded_images) = self.background_loader.check_for_loaded_images() {
             for (img_src, image) in loaded_images {
@@ -389,6 +407,11 @@ impl crate::markdown_text_reader::MarkdownTextReader {
     }
 
     pub fn invalidate_loaded_image_protocols(&mut self) {
+        if let Some(state) = self.blind_scroll.as_mut() {
+            for reader in state.chapters.values_mut() {
+                reader.invalidate_loaded_image_protocols();
+            }
+        }
         let Some(picker) = self.image_picker.clone() else {
             return;
         };

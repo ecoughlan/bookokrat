@@ -24,6 +24,91 @@ use svg_generation::terminal_to_svg;
 
 static INIT: Once = Once::new();
 
+#[test]
+#[serial]
+fn test_blind_scroll_dual_chapter_cut_svg() {
+    use bookokrat::settings::EpubColumnMode;
+    use std::time::Duration;
+    ensure_test_report_initialized();
+    set_theme_by_index(0);
+    // Four one-paragraph chapters: each fits in a page, so the spread after
+    // the first one starts in chapter three and the wipe crosses chapter cuts.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("chapters.epub");
+    bookokrat::simple_fake_books::create_fake_epub_file(
+        &path,
+        &FakeBookConfig {
+            title: "Blind".into(),
+            chapter_count: 4,
+            words_per_chapter: 1,
+        },
+    )
+    .unwrap();
+    let mut app = App::new_with_config_and_settings(
+        Some(dir.path().to_str().unwrap()),
+        Some("/dev/null"),
+        false,
+        Some(dir.path()),
+        None,
+        RuntimeSettings::in_memory(Settings {
+            epub_column_mode: EpubColumnMode::Dual,
+            ..Settings::default()
+        }),
+    );
+    app.open_book_for_reading_by_path(path.to_str().unwrap(), None)
+        .unwrap();
+    app.set_zen_mode(true);
+    let mut terminal = create_test_terminal(100, 10);
+    terminal
+        .draw(|f| app.draw(f, &create_test_fps_counter()))
+        .unwrap();
+
+    app.press_key(crossterm::event::KeyCode::Char(' '));
+    app.press_key(crossterm::event::KeyCode::Char('r'));
+    // First draw latches the geometry; each tick then loads chapters and reveals
+    // exactly one row, since a tick never advances further than one row.
+    terminal
+        .draw(|f| app.draw(f, &create_test_fps_counter()))
+        .unwrap();
+    let start = std::time::Instant::now();
+    for tick in 1..=4 {
+        app.testing_tick_blind_scroll(start + Duration::from_secs(tick * 3));
+    }
+    terminal
+        .draw(|f| app.draw(f, &create_test_fps_counter()))
+        .unwrap();
+    let svg_output = terminal_to_svg(&terminal);
+    std::fs::write(
+        "tests/snapshots/debug_blind_scroll_dual_chapter_cut.svg",
+        &svg_output,
+    )
+    .unwrap();
+    assert_svg_snapshot(
+        svg_output,
+        std::path::Path::new("tests/snapshots/blind_scroll_dual_chapter_cut.svg"),
+        "test_blind_scroll_dual_chapter_cut_svg",
+        create_test_failure_handler("test_blind_scroll_dual_chapter_cut_svg"),
+    );
+
+    // Esc stops on the first unrevealed row and flashes it.
+    app.press_key(crossterm::event::KeyCode::Esc);
+    terminal
+        .draw(|f| app.draw(f, &create_test_fps_counter()))
+        .unwrap();
+    let svg_output = terminal_to_svg(&terminal);
+    std::fs::write(
+        "tests/snapshots/debug_blind_scroll_dual_stopped.svg",
+        &svg_output,
+    )
+    .unwrap();
+    assert_svg_snapshot(
+        svg_output,
+        std::path::Path::new("tests/snapshots/blind_scroll_dual_stopped.svg"),
+        "test_blind_scroll_dual_stopped_svg",
+        create_test_failure_handler("test_blind_scroll_dual_stopped_svg"),
+    );
+}
+
 fn ensure_test_report_initialized() {
     INIT.call_once(|| {
         test_report::init_test_report();

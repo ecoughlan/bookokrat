@@ -423,17 +423,13 @@ impl crate::markdown_text_reader::MarkdownTextReader {
 
     /// Get the index of the first visible node in the viewport
     pub fn get_current_node_index(&self) -> usize {
-        let visible_start = self.scroll_offset;
-
-        for (line_idx, line) in self.rendered_content.lines.iter().enumerate() {
-            if line_idx >= visible_start {
-                if let Some(node_idx) = line.node_index {
-                    return node_idx;
-                }
-            }
-        }
-
-        0
+        let lines = &self.rendered_content.lines;
+        lines
+            .iter()
+            .skip(self.reading_line())
+            .find_map(|line| line.node_index)
+            .or_else(|| lines.iter().rev().find_map(|line| line.node_index))
+            .unwrap_or(0)
     }
 
     /// Node index at a specific wrapped-line, if any. Walks forward from the
@@ -469,7 +465,7 @@ impl crate::markdown_text_reader::MarkdownTextReader {
         let start = if self.normal_mode.is_active() {
             self.normal_mode.cursor.line
         } else {
-            self.scroll_offset
+            self.reading_line()
         };
         for (offset, line) in self.rendered_content.lines.iter().skip(start).enumerate() {
             if line.node_index.is_some() {

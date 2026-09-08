@@ -107,6 +107,14 @@ pub enum Action {
     ToggleZenBorder,
     IncreaseMargin,
     DecreaseMargin,
+    StartBlindScroll,
+    PauseBlindScroll,
+    IncreaseBlindScrollSpeed,
+    DecreaseBlindScrollSpeed,
+    RewindBlindScroll,
+    AdvanceBlindScroll,
+    RewindBlindScrollFast,
+    AdvanceBlindScrollFast,
 
     // === PDF-specific ===
     ZoomIn,
@@ -244,6 +252,14 @@ impl Action {
         Action::ToggleZenBorder,
         Action::IncreaseMargin,
         Action::DecreaseMargin,
+        Action::StartBlindScroll,
+        Action::PauseBlindScroll,
+        Action::IncreaseBlindScrollSpeed,
+        Action::DecreaseBlindScrollSpeed,
+        Action::RewindBlindScroll,
+        Action::AdvanceBlindScroll,
+        Action::RewindBlindScrollFast,
+        Action::AdvanceBlindScrollFast,
         Action::ZoomIn,
         Action::ZoomOut,
         Action::ZoomReset,
@@ -390,6 +406,14 @@ impl Action {
             ToggleZenBorder => "Toggle the border/frame in zen mode",
             IncreaseMargin => "Increase content margin",
             DecreaseMargin => "Decrease content margin",
+            StartBlindScroll => "Start blind scrolling (EPUB)",
+            PauseBlindScroll => "Pause or resume blind scrolling",
+            IncreaseBlindScrollSpeed => "Increase blind scrolling speed (words per minute)",
+            DecreaseBlindScrollSpeed => "Decrease blind scrolling speed (words per minute)",
+            RewindBlindScroll => "Move reveal backward one row",
+            AdvanceBlindScroll => "Move reveal forward one row",
+            RewindBlindScrollFast => "Move reveal backward ten rows",
+            AdvanceBlindScrollFast => "Move reveal forward ten rows",
 
             // PDF-specific
             ZoomIn => "Zoom in (PDF)",
@@ -512,6 +536,14 @@ mod tests {
                 SetMark | GotoMark | ToggleMarksList => a,
                 ToggleProfiling | ToggleRawHtml | ToggleJustifyText | ToggleZenBorder
                 | IncreaseMargin | DecreaseMargin => a,
+                StartBlindScroll
+                | PauseBlindScroll
+                | IncreaseBlindScrollSpeed
+                | DecreaseBlindScrollSpeed
+                | RewindBlindScroll
+                | AdvanceBlindScroll
+                | RewindBlindScrollFast
+                | AdvanceBlindScrollFast => a,
                 ZoomIn | ZoomOut | ZoomReset | ZoomFitWidth | ZoomEnhance | PanLeft | PanRight => a,
                 GoToPage | ToggleInvertImages | TogglePdfTheming | TogglePdfWatching => a,
                 TogglePdfPageLayout | TogglePdfRenderMode | TogglePdfLinkHighlight => a,

@@ -1,3 +1,4 @@
+mod blind_scroll;
 mod comments;
 mod images;
 mod navigation;
@@ -234,6 +235,9 @@ pub struct MarkdownTextReader {
     /// Content margin level (0-20), each level adds 2 columns on each side
     content_margin: u16,
     vertical_margin: u16,
+    blind_scroll: Option<blind_scroll::BlindScroll>,
+    blind_scroll_speed: u16,
+    blind_scroll_resume_line: Option<usize>,
 
     /// Whether to justify text (distribute extra spaces between words)
     justify_text: bool,
@@ -384,11 +388,58 @@ impl MarkdownTextReader {
             chapter_title: None,
             content_margin: 0,
             vertical_margin: 1,
+            blind_scroll: None,
+            blind_scroll_speed: 250,
+            blind_scroll_resume_line: None,
             justify_text: false,
             underline_color_enabled: true,
             dual: DualState::default(),
             normal_mode: NormalModeState::new(),
             hud_message: None,
+        }
+    }
+
+    fn prepare_content(&mut self, width: usize, palette: &Base16Palette, is_focused: bool) {
+        if self.last_width != width
+            || self.last_focus_state != is_focused
+            || self.rendered_content.generation != self.cache_generation
+        {
+            if let Some(doc) = self.markdown_document.clone() {
+                self.rendered_content =
+                    self.render_document_to_lines(doc.as_ref(), width, palette, is_focused);
+                self.total_wrapped_lines = self.rendered_content.total_height;
+                self.last_width = width;
+                self.last_focus_state = is_focused;
+
+                if let Some((node_index, char_offset)) = self.pending_node_restore.take() {
+                    match char_offset {
+                        Some(off) => self.perform_node_position_restore(node_index, off),
+                        None => self.perform_node_restore(node_index),
+                    }
+                }
+
+                if let Some((node_index, offset, duration)) = self.pending_node_highlight.take() {
+                    match offset {
+                        Some(off) => {
+                            self.flash_node_position_highlight(node_index, off, duration);
+                        }
+                        None => self.flash_node_highlight(node_index, duration),
+                    }
+                }
+
+                if let Some(anchor_id) = self.pending_anchor_scroll.take() {
+                    if let Some(target_line) = self.get_anchor_position(&anchor_id) {
+                        self.scroll_to_line(target_line);
+                        self.highlight_line_temporarily(target_line, Duration::from_secs(2));
+                    } else {
+                        warn!("Pending anchor '{anchor_id}' not found after re-render");
+                    }
+                }
+
+                if let Some((query, node_index)) = self.pending_global_search.take() {
+                    self.activate_local_search_from_global(query, node_index);
+                }
+            }
         }
     }
 
@@ -559,6 +610,13 @@ impl MarkdownTextReader {
         zen_mode: bool,
         suppress_images: bool,
     ) {
+        if self.is_blind_scrolling()
+            && self
+                .last_content_area
+                .is_some_and(|previous| previous != area)
+        {
+            self.stop_blind_scroll();
+        }
         // Store content area for hit-testing and mouse interactions
         self.last_content_area = Some(area);
 
@@ -631,47 +689,7 @@ impl MarkdownTextReader {
         self.update_image_settle_state();
 
         // Re-render when dimensions, focus, or cached content change
-        if self.last_width != width
-            || self.last_focus_state != is_focused
-            || self.rendered_content.generation != self.cache_generation
-        {
-            if let Some(doc) = self.markdown_document.clone() {
-                self.rendered_content =
-                    self.render_document_to_lines(doc.as_ref(), width, palette, is_focused);
-                self.total_wrapped_lines = self.rendered_content.total_height;
-                self.last_width = width;
-                self.last_focus_state = is_focused;
-
-                if let Some((node_index, char_offset)) = self.pending_node_restore.take() {
-                    match char_offset {
-                        Some(off) => self.perform_node_position_restore(node_index, off),
-                        None => self.perform_node_restore(node_index),
-                    }
-                }
-
-                if let Some((node_index, offset, duration)) = self.pending_node_highlight.take() {
-                    match offset {
-                        Some(off) => {
-                            self.flash_node_position_highlight(node_index, off, duration);
-                        }
-                        None => self.flash_node_highlight(node_index, duration),
-                    }
-                }
-
-                if let Some(anchor_id) = self.pending_anchor_scroll.take() {
-                    if let Some(target_line) = self.get_anchor_position(&anchor_id) {
-                        self.scroll_to_line(target_line);
-                        self.highlight_line_temporarily(target_line, Duration::from_secs(2));
-                    } else {
-                        warn!("Pending anchor '{anchor_id}' not found after re-render");
-                    }
-                }
-
-                if let Some((query, node_index)) = self.pending_global_search.take() {
-                    self.activate_local_search_from_global(query, node_index);
-                }
-            }
-        }
+        self.prepare_content(width, palette, is_focused);
         let title_text = if let Some(ref title) = self.chapter_title {
             format!("[{current_chapter}/{total_chapters}] {title}")
         } else {
@@ -754,6 +772,12 @@ impl MarkdownTextReader {
             }
             b
         };
+
+        if !borderless {
+            if let Some(title) = self.blind_scroll_title() {
+                block = block.title_bottom(title.left_aligned());
+            }
+        }
 
         if !borderless && zen_mode && self.search_state.active {
             let search_hint = match self.search_state.mode {
@@ -864,7 +888,16 @@ impl MarkdownTextReader {
             self.check_for_loaded_images();
         }
 
-        if let Some(right_rect) = right_rect {
+        if self.is_blind_scrolling() {
+            self.render_blind_scroll(
+                frame,
+                left_rect,
+                right_rect,
+                palette,
+                selection_bg,
+                suppress_images,
+            );
+        } else if let Some(right_rect) = right_rect {
             // Paginated two-up "book spread" with line-by-line scrolling.
             self.render_dual_grid(
                 frame,
@@ -1037,6 +1070,23 @@ impl MarkdownTextReader {
         line.min(total.saturating_sub(1))
     }
 
+    /// Latch the page-grid geometry for `page_height`; true when it changed.
+    fn sync_dual_geometry(&mut self, page_height: usize) -> bool {
+        let stride = page_height + DUAL_SEPARATOR_ROWS;
+        let pages = self
+            .rendered_content
+            .lines
+            .len()
+            .div_ceil(page_height)
+            .max(1);
+        let vheight = (pages.div_ceil(2) * stride).saturating_sub(DUAL_SEPARATOR_ROWS);
+        let changed = self.dual.page_height != page_height || self.dual.stride != stride;
+        self.dual.page_height = page_height;
+        self.dual.stride = stride;
+        self.dual.max_vtop = vheight.saturating_sub(page_height);
+        changed
+    }
+
     /// Render the paginated two-up page grid: left column = even pages, right
     /// column = odd pages, spreads stacked vertically with dotted separators,
     /// scrolled line-by-line via `dual_vtop`.
@@ -1055,17 +1105,9 @@ impl MarkdownTextReader {
         if page_height == 0 {
             return;
         }
-        let stride = page_height + DUAL_SEPARATOR_ROWS;
+        let geometry_changed = self.sync_dual_geometry(page_height);
+        let (stride, max_vtop) = (self.dual.stride, self.dual.max_vtop);
         let total = self.rendered_content.lines.len();
-        let pages = total.div_ceil(page_height).max(1);
-        let spreads = pages.div_ceil(2).max(1);
-        let vheight = (spreads * stride).saturating_sub(DUAL_SEPARATOR_ROWS);
-        let max_vtop = vheight.saturating_sub(page_height);
-        let geometry_changed = self.dual.page_height != page_height || self.dual.stride != stride;
-
-        self.dual.page_height = page_height;
-        self.dual.stride = stride;
-        self.dual.max_vtop = max_vtop;
 
         // Sync the virtual scroll with `scroll_offset`. An external jump (search
         // result, mark restore, mode toggle) changes `scroll_offset` directly;
@@ -1745,6 +1787,8 @@ impl MarkdownTextReader {
     }
 
     pub fn clear_content(&mut self) {
+        self.blind_scroll = None;
+        self.blind_scroll_resume_line = None;
         self.scroll_offset = 0;
         self.text_selection.clear_selection();
 
@@ -1790,6 +1834,7 @@ impl MarkdownTextReader {
     }
 
     pub fn handle_terminal_resize(&mut self) {
+        self.stop_blind_scroll();
         self.dual.last_synced_scroll = usize::MAX;
         self.cache_generation += 1;
     }
@@ -1869,6 +1914,12 @@ impl MarkdownTextReader {
 
     pub fn request_overlay_cleanup_on_next_frame(&mut self) {
         self.last_overlay_cleanup_key = None;
+    }
+}
+
+impl Drop for MarkdownTextReader {
+    fn drop(&mut self) {
+        self.background_loader.cancel_loading();
     }
 }
 

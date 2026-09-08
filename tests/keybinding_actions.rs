@@ -138,6 +138,36 @@ macro_rules! binding_tests {
 // ═══════════════════════════════════════════════════════════════
 
 binding_tests! {
+    global_blind_scroll: KeyContext::Global, "<Space>r",
+        setup = |app, _dir| { open_book(&mut app); app.focused_panel = FocusedPanel::Main(MainPanel::Content); },
+        check = |app| app.text_reader().is_blind_scrolling();
+    blind_pause: KeyContext::EpubBlind, "<Space>",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().is_blind_scroll_paused();
+    blind_faster: KeyContext::EpubBlind, "+",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().get_blind_scroll_speed() == 260 && app.settings_snapshot().blind_scroll_speed == 260 && app.text_reader().get_margin() == 0;
+    blind_faster_equals: KeyContext::EpubBlind, "=",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().get_blind_scroll_speed() == 260;
+    blind_slower: KeyContext::EpubBlind, "-",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().get_blind_scroll_speed() == 240 && app.settings_snapshot().blind_scroll_speed == 240 && app.text_reader().get_margin() == 0;
+    blind_rewind: KeyContext::EpubBlind, "<Up>",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().is_blind_scrolling();
+    blind_advance: KeyContext::EpubBlind, "<Down>",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().is_blind_scrolling();
+    blind_rewind_fast: KeyContext::EpubBlind, "<S-Up>",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().is_blind_scrolling();
+    blind_advance_fast: KeyContext::EpubBlind, "<S-Down>",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| app.text_reader().is_blind_scrolling();
+    blind_stop: KeyContext::EpubBlind, "<Esc>",
+        setup = |app, _dir| { open_book(&mut app); simulate(&mut app, "<Space>r"); },
+        check = |app| !app.text_reader().is_blind_scrolling();
     // ── Global ───────────────────────────────────────
     global_help: KeyContext::Global, "?",
         setup = |app, _dir| { open_book(&mut app); },

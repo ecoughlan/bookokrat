@@ -134,6 +134,10 @@ impl NormalModeState {
 
 impl MarkdownTextReader {
     pub fn toggle_normal_mode(&mut self) {
+        if let Some(line) = self.resume_line() {
+            self.normal_mode.cursor.line = line;
+            self.normal_mode.cursor_was_set = true;
+        }
         if self.normal_mode.is_active() {
             self.normal_mode.deactivate();
         } else {

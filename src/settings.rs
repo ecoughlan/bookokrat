@@ -143,6 +143,9 @@ pub struct Settings {
     #[serde(default = "default_vertical_margin")]
     pub vertical_margin: u16,
 
+    #[serde(default = "default_blind_scroll_speed")]
+    pub blind_scroll_speed: u16,
+
     #[serde(default)]
     pub transparent_background: bool,
 
@@ -204,6 +207,10 @@ pub struct Settings {
     pub synctex_editor: Option<String>,
 }
 
+fn default_blind_scroll_speed() -> u16 {
+    250
+}
+
 fn default_vertical_margin() -> u16 {
     1
 }
@@ -231,6 +238,7 @@ impl Default for Settings {
             theme: default_theme(),
             margin: 0,
             vertical_margin: default_vertical_margin(),
+            blind_scroll_speed: default_blind_scroll_speed(),
             transparent_background: false,
             pdf_scale: default_pdf_scale(),
             pdf_pan_shift: 0,
@@ -648,6 +656,10 @@ fn app_managed_key_values(settings: &Settings) -> Vec<(String, String)> {
         ("theme".into(), format!("\"{}\"", settings.theme)),
         ("margin".into(), format!("{}", settings.margin)),
         (
+            "blind_scroll_speed".into(),
+            format!("{}", settings.blind_scroll_speed),
+        ),
+        (
             "vertical_margin".into(),
             format!("{}", settings.vertical_margin),
         ),
@@ -752,6 +764,10 @@ fn generate_settings_yaml(settings: &Settings) -> String {
     content.push_str(&format!("version: {}\n", settings.version));
     content.push_str(&format!("theme: \"{}\"\n", settings.theme));
     content.push_str(&format!("margin: {}\n", settings.margin));
+    content.push_str(&format!(
+        "blind_scroll_speed: {}\n",
+        settings.blind_scroll_speed
+    ));
     content.push_str(&format!("vertical_margin: {}\n", settings.vertical_margin));
     content.push_str(&format!(
         "transparent_background: {}\n",
@@ -1010,6 +1026,12 @@ mod tests {
         runtime.update(|settings| settings.margin = 9);
 
         assert_eq!(*persistence.observed.lock().unwrap(), vec![9]);
+    }
+
+    #[test]
+    fn blind_scroll_speed_defaults_for_legacy_configs() {
+        let legacy: Settings = serde_yaml::from_str("margin: 0\n").unwrap();
+        assert_eq!(legacy.blind_scroll_speed, 250);
     }
 
     #[test]

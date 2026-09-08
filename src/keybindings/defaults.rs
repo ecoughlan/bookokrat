@@ -41,6 +41,16 @@ pub fn default_keymap() -> Keymap {
     global_specifics(&mut keymap);
     nav_specifics(&mut keymap);
     content_specifics(&mut keymap);
+    let blind = keymap.context_mut(KeyContext::EpubBlind);
+    bind!(blind, "<Space>" => Action::PauseBlindScroll);
+    bind!(blind, "<Esc>" => Action::Cancel);
+    bind!(blind, "+" => Action::IncreaseBlindScrollSpeed);
+    bind!(blind, "=" => Action::IncreaseBlindScrollSpeed);
+    bind!(blind, "-" => Action::DecreaseBlindScrollSpeed);
+    bind!(blind, "<Up>" => Action::RewindBlindScroll);
+    bind!(blind, "<Down>" => Action::AdvanceBlindScroll);
+    bind!(blind, "<S-Up>" => Action::RewindBlindScrollFast);
+    bind!(blind, "<S-Down>" => Action::AdvanceBlindScrollFast);
     epub_normal_specifics(&mut keymap);
     pdf_specifics(&mut keymap);
     pdf_normal_specifics(&mut keymap);
@@ -128,6 +138,7 @@ fn global_specifics(keymap: &mut Keymap) {
     bind!(ctx, "<Space>s" => Action::OpenSettings);
     bind!(ctx, "<Space>z" => Action::ToggleZenMode);
     bind!(ctx, "<Space>b" => Action::ToggleZenBorder);
+    bind!(ctx, "<Space>r" => Action::StartBlindScroll);
     bind!(ctx, "<Space>t" => Action::OpenThemeSelector);
     bind!(ctx, "<Space>w" => Action::TogglePdfWatching);
     bind!(ctx, "<Space>D" => Action::TogglePdfPageLayout);
