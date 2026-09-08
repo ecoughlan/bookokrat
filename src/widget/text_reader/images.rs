@@ -167,6 +167,11 @@ impl crate::markdown_text_reader::MarkdownTextReader {
 
     pub fn check_for_loaded_images(&mut self) -> bool {
         let mut any_loaded = false;
+        if let Some(state) = self.blind_scroll.as_mut() {
+            for reader in state.chapters.values_mut() {
+                any_loaded |= reader.check_for_loaded_images();
+            }
+        }
 
         if let Some(loaded_images) = self.background_loader.check_for_loaded_images() {
             for (img_src, image) in loaded_images {
@@ -193,6 +198,11 @@ impl crate::markdown_text_reader::MarkdownTextReader {
     }
 
     pub fn invalidate_loaded_image_protocols(&mut self) {
+        if let Some(state) = self.blind_scroll.as_mut() {
+            for reader in state.chapters.values_mut() {
+                reader.invalidate_loaded_image_protocols();
+            }
+        }
         let Some(picker) = self.image_picker.clone() else {
             return;
         };

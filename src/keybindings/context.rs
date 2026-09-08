@@ -10,6 +10,7 @@ pub enum KeyContext {
     Global,
     Navigation,
     EpubContent,
+    EpubBlind,
     EpubNormal,
     PdfStandard,
     PdfNormal,
@@ -40,6 +41,7 @@ impl KeyContext {
         KeyContext::Global,
         KeyContext::Navigation,
         KeyContext::EpubContent,
+        KeyContext::EpubBlind,
         KeyContext::EpubNormal,
         KeyContext::PdfStandard,
         KeyContext::PdfNormal,
@@ -58,6 +60,7 @@ impl KeyContext {
             KeyContext::Global => "global",
             KeyContext::Navigation => "nav",
             KeyContext::EpubContent => "content",
+            KeyContext::EpubBlind => "epub_blind",
             KeyContext::EpubNormal => "epub_normal",
             KeyContext::PdfStandard => "pdf",
             KeyContext::PdfNormal => "pdf_normal",
@@ -150,7 +153,7 @@ mod tests {
 
     #[test]
     fn all_variants_covered() {
-        assert_eq!(KeyContext::ALL.len(), 13);
+        assert_eq!(KeyContext::ALL.len(), 14);
     }
 
     #[test]

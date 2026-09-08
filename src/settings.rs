@@ -134,6 +134,9 @@ pub struct Settings {
     #[serde(default = "default_vertical_margin")]
     pub vertical_margin: u16,
 
+    #[serde(default = "default_blind_scroll_speed")]
+    pub blind_scroll_speed: u16,
+
     #[serde(default)]
     pub transparent_background: bool,
 
@@ -186,6 +189,10 @@ pub struct Settings {
     pub synctex_editor: Option<String>,
 }
 
+fn default_blind_scroll_speed() -> u16 {
+    250
+}
+
 fn default_vertical_margin() -> u16 {
     1
 }
@@ -213,6 +220,7 @@ impl Default for Settings {
             theme: default_theme(),
             margin: 0,
             vertical_margin: default_vertical_margin(),
+            blind_scroll_speed: default_blind_scroll_speed(),
             transparent_background: false,
             pdf_scale: default_pdf_scale(),
             pdf_pan_shift: 0,
@@ -525,6 +533,10 @@ fn app_managed_key_values(settings: &Settings) -> Vec<(String, String)> {
         ("theme".into(), format!("\"{}\"", settings.theme)),
         ("margin".into(), format!("{}", settings.margin)),
         (
+            "blind_scroll_speed".into(),
+            format!("{}", settings.blind_scroll_speed),
+        ),
+        (
             "vertical_margin".into(),
             format!("{}", settings.vertical_margin),
         ),
@@ -614,6 +626,10 @@ fn generate_settings_yaml(settings: &Settings) -> String {
     content.push_str(&format!("version: {}\n", settings.version));
     content.push_str(&format!("theme: \"{}\"\n", settings.theme));
     content.push_str(&format!("margin: {}\n", settings.margin));
+    content.push_str(&format!(
+        "blind_scroll_speed: {}\n",
+        settings.blind_scroll_speed
+    ));
     content.push_str(&format!("vertical_margin: {}\n", settings.vertical_margin));
     content.push_str(&format!(
         "transparent_background: {}\n",
@@ -778,6 +794,20 @@ pub fn get_theme_name() -> String {
 pub fn set_theme_name(name: &str) {
     if let Ok(mut settings) = SETTINGS.write() {
         settings.theme = name.to_string();
+    }
+    save_settings();
+}
+
+pub fn get_blind_scroll_speed() -> u16 {
+    SETTINGS
+        .read()
+        .map(|s| s.blind_scroll_speed)
+        .unwrap_or_else(|_| default_blind_scroll_speed())
+}
+
+pub fn set_blind_scroll_speed(speed: u16) {
+    if let Ok(mut settings) = SETTINGS.write() {
+        settings.blind_scroll_speed = speed;
     }
     save_settings();
 }
@@ -1030,6 +1060,12 @@ pub fn fix_incompatible_pdf_settings() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blind_scroll_speed_defaults_for_legacy_configs() {
+        let legacy: Settings = serde_yaml::from_str("margin: 0\n").unwrap();
+        assert_eq!(legacy.blind_scroll_speed, 250);
+    }
 
     #[test]
     fn vertical_margin_defaults_to_one_for_legacy_configs() {
